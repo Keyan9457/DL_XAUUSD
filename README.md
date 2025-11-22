@@ -1,56 +1,156 @@
-# AI-Powered XAUUSD Trading Bot
+# XAUUSD AI Trading Bot
 
-This project is a fully functional, AI-driven trading bot for Gold (XAUUSD). It uses Deep Learning (LSTM) combined with Smart Money Concepts (SMC) to predict prices and generate trade signals.
+AI-powered trading bot for Gold (XAUUSD) using LSTM neural networks with Smart Money Concepts (SMC) and multi-timeframe analysis.
 
 ## 🚀 Features
 
-### 1. AI Brain (LSTM + Regression)
--   **Model**: Long Short-Term Memory (LSTM) Neural Network.
--   **Prediction**: Predicts the **Exact Next Price** (Regression) rather than just Buy/Sell.
--   **Features**: Uses Technical Indicators (RSI, MACD, EMA, ATR, Bollinger Bands) AND **SMC Features** (Distance to Swing Highs/Lows).
+- **Deep Learning**: LSTM neural network predicting price movements
+- **Multi-Timeframe Analysis**: 5m, 15m, 1h, 4h, Daily timeframes
+- **Smart Money Concepts**: Dynamic SL/TP based on market structure
+- **55-Year Historical Data**: Training on comprehensive dataset (2004-2025)
+- **Risk Management**: Automatic position sizing, 1:2 R:R ratio
+- **Real-Time Execution**: MetaTrader 5 integration
+- **WhatsApp Notifications**: Instant trade alerts
 
-### 2. Smart Trading Logic
--   **Trend Filter**: Strictly follows the **50 EMA**.
-    -   **BUY**: Only if Price > 50 EMA.
-    -   **SELL**: Only if Price < 50 EMA.
--   **SMC Stop Loss**: Dynamic SL placement based on Market Structure.
-    -   **BUY SL**: Below the recent Swing Low.
-    -   **SELL SL**: Above the recent Swing High.
--   **Take Profit**: Automatically set to **1:2 Risk-to-Reward**.
--   **Scalping Focus**: Designed for 5-15 minute trades (Scalps).
+## 📊 Model Architecture
 
-### 3. Real-Time Execution
--   **Live Data**: Fetches real-time data from Yahoo Finance (`yfinance`).
--   **Timezone Sync**: Automatically converts chart time to **IST (Indian Standard Time)**.
--   **Risk Management**: Calculates Lot Size based on Account Balance and Risk per Trade.
+- **Input**: 120 candles × 60 features (multi-timeframe indicators)
+- **Architecture**: 3-layer LSTM (256-256-128 units) with dropout & batch normalization
+- **Output**: Log return prediction (regression)
+- **Target**: 55%+ directional accuracy
 
-## 📂 File Structure
+## 🛠️ Installation
 
--   `main.py`: **The Engine**. Runs the live trading loop, fetches data, and executes trades.
--   `model_training.py`: **The Teacher**. Used to train or retrain the AI model.
--   `live_trader.py`: **The Manager**. Handles signal logic, risk calculations, and trade simulation.
--   `best_xauusd_model.keras`: The trained AI model file.
--   `scaler.pkl` / `target_scaler.pkl`: Saved scalers for data normalization.
+### Local Setup
 
-## ⚡ How to Run
+```bash
+# Clone repository
+git clone https://github.com/YOUR_USERNAME/DL_XAUUSD.git
+cd DL_XAUUSD
 
-1.  **Start the Bot**:
-    ```powershell
-    python main.py
-    ```
-2.  **Monitor Output**:
-    The bot will print the status every 5 minutes:
-    ```text
-    Time: 2025-11-21 06:45:00 (IST)
-    Current Price: 4066.30
-    Predicted Price: 4070.27
-    Trend: BULLISH (Above EMA 50)
-    Signal: BUY
-    Est. Duration: 5-15 Mins (Scalp)
-    Stop Loss: 4059.83
-    Take Profit: 4083.14
-    ```
+# Install dependencies
+pip install -r requirements.txt
 
-## ⚠️ Important Notes
--   **Simulation Mode**: The bot currently *simulates* trades (prints them). To trade real money, integrate a broker API in `live_trader.py`.
--   **Data Delay**: `yfinance` data for Futures is delayed by 10-15 mins. For real trading, use a paid data feed.
+# Configure MT5 credentials
+cp .env.example .env
+# Edit .env with your MT5 login details
+```
+
+### Google Colab Training
+
+For training with GPU acceleration:
+
+1. Open `train_model_colab.ipynb` in Google Colab
+2. Upload your historical data to Colab or Google Drive
+3. Run all cells to train the model
+4. Download trained model files
+
+## 📁 Project Structure
+
+```
+DL_XAUUSD/
+├── main.py                          # Live trading bot
+├── model_training.py                # Model training script
+├── evaluate_model.py                # Model evaluation
+├── process_historical_data.py       # Data preprocessing
+├── live_trader.py                   # Trading logic & risk management
+├── mt5_handler.py                   # MetaTrader 5 integration
+├── notification_handler.py          # WhatsApp alerts
+├── dashboard.py                     # Streamlit dashboard
+├── train_model_colab.ipynb         # Colab training notebook
+├── requirements.txt                 # Python dependencies
+└── README.md                        # This file
+```
+
+## 🎯 Usage
+
+### 1. Process Historical Data
+
+```bash
+python process_historical_data.py
+```
+
+### 2. Train Model
+
+**Local (if you have 16GB+ RAM):**
+```bash
+python model_training.py
+```
+
+**Google Colab (recommended):**
+- Open `train_model_colab.ipynb`
+- Follow notebook instructions
+
+### 3. Evaluate Model
+
+```bash
+python evaluate_model.py
+```
+
+### 4. Run Live Trading
+
+```bash
+python main.py
+```
+
+### 5. Launch Dashboard
+
+```bash
+streamlit run dashboard.py
+```
+
+## 📈 Performance Metrics
+
+**Target Metrics:**
+- MAE on Log Returns: < 0.0005
+- Directional Accuracy: > 55%
+- Risk-Reward Ratio: 1:2
+
+## ⚙️ Configuration
+
+Edit `main.py` to configure:
+- `SYMBOL`: Trading symbol (default: XAUUSD)
+- `INTERVAL`: Timeframe (default: 5m)
+- `ACCOUNT_BALANCE`: Your account size
+- Risk percentage per trade
+
+## 🔒 Security
+
+- Never commit `.env` file (contains MT5 credentials)
+- Keep API keys secure
+- Use paper trading first to test
+
+## 📝 System Architecture
+
+The bot uses a "Waterfall" logic with 3 gates:
+
+1. **Gate 1 (HTF Trend)**: 30m & 15m EMA confirmation
+2. **Gate 2 (AI Prediction)**: LSTM price prediction on 5m
+3. **Gate 3 (LTF Entry)**: 3m & 1m momentum confirmation
+
+Only trades that pass all 3 gates are executed.
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
+
+## ⚠️ Disclaimer
+
+This bot is for educational purposes only. Trading involves substantial risk of loss. Past performance does not guarantee future results. Always test thoroughly in a demo account before live trading.
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 📧 Contact
+
+For questions or support, please open an issue on GitHub.
+
+---
+
+**Built with ❤️ using TensorFlow, MetaTrader 5, and Smart Money Concepts**

@@ -4,191 +4,216 @@ import pandas_ta as ta
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras.regularizers import l2
 import joblib
 import os
 
 # --- CONFIGURATION ---
-SEQ_LEN = 60  # Look back at the last 60 candles (5 hours)
-FUTURE_TARGET = 1  # Predict the next 1 candle
-CSV_FILE_PATH = 'XAUUSD_5M_20Y.csv' # Ensure this file exists in your folder
+SEQ_LEN = 120  # Increased from 60 to 120 (10 hours of 5m data)
+FUTURE_TARGET = 1
+PROCESSED_DATA_DIR = 'processed_data'
+
+# Data paths
+CSV_FILE_PATH_5M = os.path.join(PROCESSED_DATA_DIR, 'XAUUSD_M5_processed.csv')
+CSV_FILE_PATH_15M = os.path.join(PROCESSED_DATA_DIR, 'XAUUSD_M15_processed.csv')
+CSV_FILE_PATH_1H = os.path.join(PROCESSED_DATA_DIR, 'XAUUSD_H1_processed.csv')
+CSV_FILE_PATH_4H = os.path.join(PROCESSED_DATA_DIR, 'XAUUSD_H4_processed.csv')
+CSV_FILE_PATH_DAILY = os.path.join(PROCESSED_DATA_DIR, 'XAUUSD_Daily_processed.csv')
 
 # --- STEP 1: DATA FUNCTIONS ---
 
 def load_data(csv_path):
     if os.path.exists(csv_path):
         print(f"Loading data from {csv_path}...")
-        # Ensure your CSV has 'Date' column. Adjust names if your CSV is different.
-        df = pd.read_csv(csv_path, parse_dates=['Date'], index_col='Date')
+        df = pd.read_csv(csv_path, parse_dates=['DateTime'], index_col='DateTime')
+        print(f"Data Loaded. Shape: {df.shape}")
+        return df
     else:
-        # Fallback: Download recent data for testing if CSV is missing
-        import yfinance as yf
-        print("CSV not found. Downloading recent sample data from YFinance...")
-        df = yf.download('GC=F', period='60d', interval='5m', progress=False) 
-        
-        # Check for MultiIndex columns (common in new yfinance)
-        if isinstance(df.columns, pd.MultiIndex):
-            print("Detected MultiIndex columns. Flattening...")
-            # If level 1 is Ticker, we can drop it or just take level 0
-            df.columns = df.columns.get_level_values(0)
-        
-        print(f"Columns after loading: {df.columns}")
-        
-        # YFinance columns are usually: Open, High, Low, Close, Volume
-        # Ensure we have the right case
-        df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
-    
-    # Basic cleanup
-    df.dropna(inplace=True)
-    return df
+        print(f"Warning: {csv_path} not found.")
+        return None
 
 def add_smc_indicators(df):
-    """
-    Adds simplified SMC features:
-    1. Swing Highs/Lows (Fractals)
-    2. Order Block Proximity (Distance to recent significant High/Low)
-    """
-    # Identify Swing Highs and Lows (Fractals) - Window of 5
-    # A high is a high if it's higher than 2 candles before and 2 after
+    """SMC features"""
     df['Swing_High'] = df['High'].rolling(window=5, center=True).max() == df['High']
     df['Swing_Low'] = df['Low'].rolling(window=5, center=True).min() == df['Low']
     
-    # Forward fill the last known Swing High/Low to simulate "Order Block" zones
-    # In a real SMC system, this would be more complex (mitigation, etc.)
     df['Last_Swing_High'] = df['High'].where(df['Swing_High']).ffill()
     df['Last_Swing_Low'] = df['Low'].where(df['Swing_Low']).ffill()
     
-    # Feature: Distance to Last Swing High/Low (Normalized by ATR later implicitly)
-    # If Price is close to Last Swing High -> Potential Bearish OB
-    # If Price is close to Last Swing Low -> Potential Bullish OB
     df['Dist_to_High'] = df['Last_Swing_High'] - df['Close']
     df['Dist_to_Low'] = df['Close'] - df['Last_Swing_Low']
     
-    # Fill NaNs created by rolling/shifting
     df.fillna(method='ffill', inplace=True)
-    df.fillna(0, inplace=True) # For initial rows
+    df.fillna(0, inplace=True)
     
     return df
 
-def add_technical_indicators(df):
-    # 1. Trend
-    df['EMA_50'] = ta.ema(df['Close'], length=50)
+def add_technical_indicators(df, prefix=''):
+    """Add technical indicators"""
+    # Trend
+    df[f'{prefix}EMA_50'] = ta.ema(df['Close'], length=50)
+    df[f'{prefix}EMA_200'] = ta.ema(df['Close'], length=200)
     
-    # 2. Momentum
-    df['RSI'] = ta.rsi(df['Close'], length=14)
-    # Check if MACD returns a DataFrame and handle it
+    # Momentum
+    df[f'{prefix}RSI'] = ta.rsi(df['Close'], length=14)
     macd = ta.macd(df['Close'])
     if isinstance(macd, pd.DataFrame):
-        df['MACD'] = macd.iloc[:, 0] # fast line
+        df[f'{prefix}MACD'] = macd.iloc[:, 0]
     else:
-        df['MACD'] = macd
+        df[f'{prefix}MACD'] = macd
     
-    # 3. Volatility
-    df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+    # Volatility
+    df[f'{prefix}ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
     
-    # 4. Bollinger Bands
+    # Bollinger Bands
     bb = ta.bbands(df['Close'], length=20)
     if bb is not None:
-        df['BB_UPPER'] = bb.iloc[:, 0]
-        df['BB_LOWER'] = bb.iloc[:, 2]
+        df[f'{prefix}BB_UPPER'] = bb.iloc[:, 0]
+        df[f'{prefix}BB_LOWER'] = bb.iloc[:, 2]
 
-    # 5. SMC Features
-    df = add_smc_indicators(df)
+    # SMC (only for main timeframe)
+    if prefix == '':
+        df = add_smc_indicators(df)
+        
+    # Volume features
+    if 'Volume' in df.columns:
+        df[f'{prefix}Volume_MA'] = df['Volume'].rolling(window=20).mean()
+        df[f'{prefix}Volume_Ratio'] = df['Volume'] / df[f'{prefix}Volume_MA']
+
+    # Log Returns
+    df[f'{prefix}Log_Return'] = np.log(df['Close'] / df['Close'].shift(1))
+    
+    # Trend Direction (for HTF)
+    if prefix != '':
+        df[f'{prefix}Trend'] = np.where(df['Close'] > df[f'{prefix}EMA_50'], 1, -1)
 
     df.dropna(inplace=True)
     return df
 
-def preprocess_data(df):
-    # REGRESSION TARGET: Predict the actual Close price of the next candle
-    df['Target'] = df['Close'].shift(-FUTURE_TARGET)
+def align_higher_timeframe(df_main, df_htf, prefix):
+    """Align higher timeframe data to main timeframe"""
+    print(f"Aligning {prefix} data...")
     
-    # We must drop the last row because it has no future target
-    df.dropna(inplace=True)
-
-    # Select features for the model
-    # Added Dist_to_High, Dist_to_Low for SMC
-    feature_cols = ['Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'BB_UPPER', 'BB_LOWER', 'Dist_to_High', 'Dist_to_Low']
+    # Select indicator columns
+    htf_cols = [col for col in df_htf.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+    df_htf_selected = df_htf[htf_cols].copy()
     
-    # Scale Features
-    scaler = MinMaxScaler()
-    scaled_data = scaler.fit_transform(df[feature_cols])
+    # Rename with prefix
+    df_htf_selected.columns = [f'{prefix}{col}' for col in df_htf_selected.columns]
     
-    # Scale Target Separately (Crucial for Inverse Transform)
-    target_scaler = MinMaxScaler()
-    # Reshape target to (n_samples, 1) for scaler
-    scaled_target = target_scaler.fit_transform(df[['Target']])
-    
-    X, y = [], []
-    # Create sequences
-    for i in range(SEQ_LEN, len(scaled_data)):
-        X.append(scaled_data[i-SEQ_LEN:i])
-        y.append(scaled_target[i]) # Use scaled target
-        
-    return np.array(X), np.array(y), scaler, target_scaler, feature_cols
-
-# --- STEP 2: MODEL BUILDING FUNCTION ---
-
-def build_model(input_shape):
     model = Sequential()
     
-    # Layer 1: LSTM
-    model.add(LSTM(units=128, return_sequences=True, input_shape=input_shape))
-    model.add(Dropout(0.3))
+    # Layer 1: LSTM (increased units)
+    model.add(LSTM(units=256, return_sequences=True, input_shape=input_shape, 
+                   kernel_regularizer=l2(0.001)))
+    model.add(Dropout(0.4))
     model.add(BatchNormalization())
 
     # Layer 2: LSTM
-    model.add(LSTM(units=128, return_sequences=False))
-    model.add(Dropout(0.3))
+    model.add(LSTM(units=256, return_sequences=True, kernel_regularizer=l2(0.001)))
+    model.add(Dropout(0.4))
+    model.add(BatchNormalization())
+    
+    # Layer 3: LSTM (new layer)
+    model.add(LSTM(units=128, return_sequences=False, kernel_regularizer=l2(0.001)))
+    model.add(Dropout(0.4))
     model.add(BatchNormalization())
 
-    # Layer 3: Dense
-    model.add(Dense(64, activation='relu'))
+    # Dense layers
+    model.add(Dense(64, activation='relu', kernel_regularizer=l2(0.001)))
+    model.add(Dropout(0.3))
     
-    # Output Layer: LINEAR for Regression (Predicting a value, not a probability)
+    # Output
     model.add(Dense(1, activation='linear'))
     
-    # Loss: Mean Squared Error for Regression
     model.compile(optimizer='adam', loss='mean_squared_error', metrics=['mean_absolute_error'])
     return model
 
-# --- MAIN EXECUTION BLOCK ---
+# --- MAIN EXECUTION ---
 
 if __name__ == "__main__":
-    # 1. Load and Process
-    df = load_data(CSV_FILE_PATH)
-    df = add_technical_indicators(df)
+    print("\n" + "="*70)
+    print("ENHANCED MODEL TRAINING WITH 55-YEAR DATASET")
+    print("="*70)
     
-    print("Preprocessing data sequences...")
-    X, y, scaler, target_scaler, features = preprocess_data(df)
+    # 1. Load Main Timeframe (5m)
+    print("\n--- Loading Data ---")
+    df_5m = load_data(CSV_FILE_PATH_5M)
+    if df_5m is None:
+        exit()
+    
+    # 2. Load Higher Timeframes
+    df_15m = load_data(CSV_FILE_PATH_15M)
+    df_1h = load_data(CSV_FILE_PATH_1H)
+    df_4h = load_data(CSV_FILE_PATH_4H)
+    df_daily = load_data(CSV_FILE_PATH_DAILY)
+    
+    # 3. Add indicators
+    print("\n--- Adding Technical Indicators ---")
+    df_5m = add_technical_indicators(df_5m, prefix='')
+    
+    if df_15m is not None:
+        df_15m = add_technical_indicators(df_15m, prefix='')
+        df_5m = align_higher_timeframe(df_5m, df_15m, 'HTF15_')
+    
+    if df_1h is not None:
+        df_1h = add_technical_indicators(df_1h, prefix='')
+        df_5m = align_higher_timeframe(df_5m, df_1h, 'HTF1H_')
+    
+    if df_4h is not None:
+        df_4h = add_technical_indicators(df_4h, prefix='')
+        df_5m = align_higher_timeframe(df_5m, df_4h, 'HTF4H_')
+    
+    if df_daily is not None:
+        df_daily = add_technical_indicators(df_daily, prefix='')
+        df_5m = align_higher_timeframe(df_5m, df_daily, 'HTFD_')
+    
+    # 4. Preprocess
+    print("\n--- Preprocessing Data ---")
+    X, y, scaler, target_scaler, features = preprocess_data(df_5m)
 
-    # 2. Split Data (80% Train, 20% Test)
-    split = int(len(X) * 0.8)
+    # 5. Time-based split (90% train, 10% test - last 6 months)
+    split = int(len(X) * 0.9)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y[:split], y[split:]
 
-    print(f"Training Data Shape: {X_train.shape}")
-    print(f"Testing Data Shape: {X_test.shape}")
+    print(f"\n--- Data Split ---")
+    print(f"Training Data: {X_train.shape[0]:,} sequences")
+    print(f"Testing Data: {X_test.shape[0]:,} sequences")
+    print(f"Sequence Length: {SEQ_LEN} candles")
+    print(f"Features per candle: {X_train.shape[2]}")
 
-    # 3. Save the Scalers (Crucial for the live bot)
+    # 6. Save Scalers
     joblib.dump(scaler, 'scaler.pkl')
     joblib.dump(target_scaler, 'target_scaler.pkl')
-    print("Scalers saved as scaler.pkl and target_scaler.pkl")
+    print("\n✓ Scalers saved")
 
-    # 4. Build and Train Model
-    print("Building Model...")
+    # 7. Build Model
+    print("\n--- Building Enhanced Model ---")
     model = build_model((X_train.shape[1], X_train.shape[2]))
+    print(f"Total Parameters: {model.count_params():,}")
 
-    # Callbacks
-    checkpoint = ModelCheckpoint("best_xauusd_model.keras", save_best_only=True, monitor='val_loss', mode='min')
-    early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+    # 8. Callbacks
+    checkpoint = ModelCheckpoint("best_xauusd_model.keras", save_best_only=True, 
+                                monitor='val_loss', mode='min', verbose=1)
+    early_stop = EarlyStopping(monitor='val_loss', patience=7, restore_best_weights=True, verbose=1)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, 
+                                  min_lr=0.00001, verbose=1)
 
-    print("Starting Training...")
+    # 9. Train
+    print("\n--- Starting Training ---")
+    print("This may take 30-60 minutes...")
     history = model.fit(
         X_train, y_train,
-        epochs=20, 
+        epochs=30, 
         batch_size=64,
         validation_data=(X_test, y_test),
-        callbacks=[checkpoint, early_stop]
+        callbacks=[checkpoint, early_stop, reduce_lr],
+        verbose=1
     )
     
-    print("Training Complete. Model saved as best_xauusd_model.keras")
+    print("\n" + "="*70)
+    print("✓ TRAINING COMPLETE")
+    print("="*70)
+    print(f"Model saved as: best_xauusd_model.keras")

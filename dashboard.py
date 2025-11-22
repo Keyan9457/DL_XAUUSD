@@ -143,5 +143,35 @@ while True:
                 st.write(f"**SL:** ${sell_setup.get('sl', 0):.2f}")
                 st.write(f"**TP:** ${sell_setup.get('tp', 0):.2f}")
 
+            st.markdown("---")
+
+            # Chart Section
+            st.subheader("📊 Live Chart")
+            
+            chart_data = state.get('chart_data', [])
+            if chart_data:
+                from chart_handler import create_candlestick_chart
+                
+                # Convert back to DataFrame
+                df_chart = pd.DataFrame(chart_data)
+                
+                # Determine which setup to show
+                active_setup = {}
+                final_signal = signals.get('final_signal', 'HOLD')
+                
+                if final_signal == "BUY":
+                    active_setup = buy_setup
+                elif final_signal == "SELL":
+                    active_setup = sell_setup
+                else:
+                    # Show potential buy setup by default if neutral, or nothing
+                    # Let's show the one that is closer or just buy for visualization
+                    active_setup = buy_setup 
+
+                fig = create_candlestick_chart(df_chart, active_setup, symbol)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Waiting for chart data...")
+
     # Sleep for 5 seconds before refresh
     time.sleep(5)

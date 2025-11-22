@@ -1,24 +1,29 @@
 import requests
 import time
 
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # --- CONFIGURATION ---
 # Option 1: CallMeBot (Free, Personal)
 # Get API Key: Send "I allow callmebot to send me messages" to +34 644 10 55 84 on WhatsApp
-CALLMEBOT_PHONE = "+919360509436" # User provided
-CALLMEBOT_API_KEY = "" # Get this from the bot
+CALLMEBOT_PHONE = os.getenv("CALLMEBOT_PHONE")
+CALLMEBOT_API_KEY = os.getenv("CALLMEBOT_API_KEY")
 
 # Option 2: Twilio (Paid, Professional)
-TWILIO_SID = ""
-TWILIO_AUTH_TOKEN = ""
-TWILIO_FROM = "whatsapp:+14155238886"
-TWILIO_TO = "whatsapp:+91..."
+TWILIO_SID = os.getenv("TWILIO_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_FROM = os.getenv("TWILIO_FROM")
+TWILIO_TO = os.getenv("TWILIO_TO")
 
 # Option 3: Telegram (Free, Reliable, Recommended)
 # 1. Search for @BotFather on Telegram
 # 2. Send /newbot and follow instructions to get TOKEN
 # 3. Search for @userinfobot to get your CHAT ID
-TELEGRAM_BOT_TOKEN = "8180899334:AAEFt1nt9ECI5DD8aS7mBsRtAP9Y7nLcjVg" 
-TELEGRAM_CHAT_ID = "1246626854"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 def send_telegram_message(message):
     try:

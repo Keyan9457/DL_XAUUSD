@@ -23,9 +23,11 @@ class MT5RiskManager:
         Checks ForexFactory RSS feed for high impact USD or XAU news.
         Returns True if SAFE to trade, False if NEWS imminent.
         """
-        # In a real bot, you would parse 'http://nfs.faireconomy.media/ff_calendar_thisweek.xml'
-        # For now, we assume safe:
-        return True 
+        from news_handler import is_trading_safe
+        safe, reason = is_trading_safe()
+        if not safe:
+            print(f"NEWS FILTER: {reason}")
+        return safe
 
     def check_drawdown_rules(self, current_loss):
         # Rule 2.1: Max Daily Loss 3%

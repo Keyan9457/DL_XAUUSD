@@ -131,7 +131,57 @@ def main():
                 print("Failed to get data for some timeframes. Retrying...")
                 time.sleep(10)
                 continue
+
+            # --- FETCH CORRELATED ASSETS ---
+            print("Fetching Correlated Assets (DXY, US10Y)...")
+            
+            # 1. DXY from MT5 (USDX)
+            df_dxy = get_mt5_data("USDX", "5m", LOOKBACK_CANDLES)
+            if df_dxy is not None:
+                # Ensure indices are compatible (timezone naive)
+                if df_5m.index.tz is not None:
+                    df_5m.index = df_5m.index.tz_localize(None)
+                if df_dxy.index.tz is not None:
+                    df_dxy.index = df_dxy.index.tz_localize(None)
+                    
+                # Merge using reindex/ffill
+                df_5m['DXY'] = df_dxy['Close'].reindex(df_5m.index, method='ffill')
+            else:
+                print("Warning: Could not fetch USDX from MT5. Using 0.0 (Risk of poor prediction)")
+                df_5m['DXY'] = 0.0
+
+            # 2. US10Y from YFinance (^TNX)
+            try:
+                import yfinance as yf
+                # Fetch recent data to match 5m timeframe
+                us10y_data = yf.download('^TNX', period='5d', interval='5m', progress=False)
                 
+                if not us10y_data.empty:
+                    if us10y_data.index.tz is not None:
+                        us10y_data.index = us10y_data.index.tz_localize(None)
+                        
+                    if isinstance(us10y_data.columns, pd.MultiIndex):
+                        try:
+                            us10y_close = us10y_data['Close']['^TNX']
+                        except KeyError:
+                            us10y_close = us10y_data['Close']
+                    else:
+                        us10y_close = us10y_data['Close']
+                    
+                    # Merge/Align with df_5m
+                    aligned_us10y = us10y_close.reindex(df_5m.index, method='ffill')
+                    df_5m['US10Y'] = aligned_us10y
+                else:
+                    print("Warning: No data for ^TNX")
+                    df_5m['US10Y'] = 0.0
+            except Exception as e:
+                print(f"Error fetching US10Y: {e}")
+                df_5m['US10Y'] = 0.0
+            
+            # Fill any remaining NaNs (e.g. if DXY/US10Y missing for latest candle)
+            df_5m.fillna(method='ffill', inplace=True)
+            df_5m.fillna(0, inplace=True)
+
             # C. Calculate Indicators (For Trend Checks)
             # Helper to get EMA
             def get_ema(df, length=50):
@@ -161,7 +211,7 @@ def main():
                 continue
                 
             latest_5m = df_5m.tail(SEQ_LEN)
-            feature_cols = ['Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'BB_UPPER', 'BB_LOWER', 'Dist_to_High', 'Dist_to_Low']
+            feature_cols = ['Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'BB_UPPER', 'BB_LOWER', 'Dist_to_High', 'Dist_to_Low', 'DXY', 'US10Y']
             signal_ai, predicted_price, confidence = get_trade_signal(latest_5m, model, scaler, target_scaler, feature_cols)
             
             current_price = latest_5m['Close'].iloc[-1]
@@ -272,6 +322,17 @@ def main():
                     print("Trade rejected by Risk Manager (Drawdown Limit).")
             
             # --- SAVE STATE FOR DASHBOARD ---
+            # Prepare Candle Data for Chart (Last 50 candles)
+            chart_data = []
+            if not latest_5m.empty:
+                # Ensure index is datetime and reset it to get it as a column
+                temp_df = latest_5m.tail(50).copy()
+                temp_df.reset_index(inplace=True)
+                # Convert to list of dicts: [{'Date': '...', 'Open': ...}, ...]
+                # Note: JSON serialization of Timestamps needs string conversion
+                temp_df['Date'] = temp_df['Date'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                chart_data = temp_df[['Date', 'Open', 'High', 'Low', 'Close']].to_dict('records')
+
             state = {
                 "last_update": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 "symbol": SYMBOL,
@@ -279,7 +340,6 @@ def main():
                 "predicted_price": float(predicted_price),
                 "signals": {
                     "htf_bias": htf_bias,
-                    "ai_signal": signal_ai,
                     "ai_signal": signal_ai,
                     "confidence": confidence,
                     "ltf_conf": ltf_conf,
@@ -296,7 +356,8 @@ def main():
                         "sl": float(pot_sell_sl),
                         "tp": float(sell_tp)
                     }
-                }
+                },
+                "chart_data": chart_data
             }
             
             try:

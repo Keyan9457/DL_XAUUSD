@@ -1,0 +1,37 @@
+# Environment and credentials
+.env
+*.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Model files (large)
+*.pkl
+*.keras
+*.h5
+
+# Data files (large - will be downloaded in Colab)
+*.csv
+training_data*/
+processed_data/
+XAUUSD_HISTORICAL_DATA/
+
+# Generated files
+*.pdf
+bot_state.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

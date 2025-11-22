@@ -1,0 +1,10 @@
+MetaTrader5
+pandas
+numpy
+joblib
+tensorflow
+pandas_ta
+streamlit
+plotly
+feedparser
+requests

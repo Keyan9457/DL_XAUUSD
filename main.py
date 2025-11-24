@@ -10,6 +10,8 @@ from notification_handler import send_whatsapp_message
 import datetime
 import json
 import os
+import threading
+import MetaTrader5 as mt5
 
 # --- CONFIGURATION ---
 MODEL_PATH = 'best_xauusd_model.keras'
@@ -44,35 +46,131 @@ def add_smc_indicators(df):
     
     return df
 
-def calculate_indicators(df):
+def calculate_indicators(df, prefix=''):
     # Copy from model_training.py to ensure consistency
     # 1. Trend
-    df['EMA_50'] = ta.ema(df['Close'], length=50)
+    df[f'{prefix}EMA_50'] = ta.ema(df['Close'], length=50)
+    df[f'{prefix}EMA_200'] = ta.ema(df['Close'], length=200)
     
     # 2. Momentum
-    df['RSI'] = ta.rsi(df['Close'], length=14)
+    df[f'{prefix}RSI'] = ta.rsi(df['Close'], length=14)
     
     # Handle MACD
     macd = ta.macd(df['Close'])
     if isinstance(macd, pd.DataFrame):
-        df['MACD'] = macd.iloc[:, 0]
+        df[f'{prefix}MACD'] = macd.iloc[:, 0]
     else:
-        df['MACD'] = macd
+        df[f'{prefix}MACD'] = macd
     
     # 3. Volatility
-    df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
+    df[f'{prefix}ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
     
     # 4. Bollinger Bands
     bb = ta.bbands(df['Close'], length=20)
     if bb is not None:
-        df['BB_UPPER'] = bb.iloc[:, 0]
-        df['BB_LOWER'] = bb.iloc[:, 2]
+        df[f'{prefix}BB_UPPER'] = bb.iloc[:, 0]
+        df[f'{prefix}BB_LOWER'] = bb.iloc[:, 2]
 
-    # 5. SMC Features
-    df = add_smc_indicators(df)
+    # 5. SMC Features (only for main timeframe)
+    if prefix == '':
+        df = add_smc_indicators(df)
+    
+    # 6. Volume Features
+    if 'Volume' in df.columns:
+        df[f'{prefix}Volume_MA'] = df['Volume'].rolling(window=20).mean()
+        df[f'{prefix}Volume_Ratio'] = df['Volume'] / df[f'{prefix}Volume_MA']
 
     df.dropna(inplace=True)
     return df
+
+def align_htf_features(df_main, df_htf, prefix):
+    """Align higher timeframe features with main dataframe (matching training process)"""
+    # Calculate indicators for HTF (including SMC for HTF)
+    df_htf_copy = df_htf.copy()
+    
+    # Add all technical indicators (this includes SMC features for HTF too)
+    df_htf_copy[f'EMA_50'] = ta.ema(df_htf_copy['Close'], length=50)
+    df_htf_copy[f'EMA_200'] = ta.ema(df_htf_copy['Close'], length=200)
+    df_htf_copy[f'RSI'] = ta.rsi(df_htf_copy['Close'], length=14)
+    
+    macd = ta.macd(df_htf_copy['Close'])
+    if isinstance(macd, pd.DataFrame):
+        df_htf_copy[f'MACD'] = macd.iloc[:, 0]
+    else:
+        df_htf_copy[f'MACD'] = macd
+    
+    df_htf_copy[f'ATR'] = ta.atr(df_htf_copy['High'], df_htf_copy['Low'], df_htf_copy['Close'], length=14)
+    
+    bb = ta.bbands(df_htf_copy['Close'], length=20)
+    if bb is not None:
+        df_htf_copy[f'BB_UPPER'] = bb.iloc[:, 0]
+        df_htf_copy[f'BB_LOWER'] = bb.iloc[:, 2]
+    
+    # SMC Features for HTF
+    df_htf_copy = add_smc_indicators(df_htf_copy)
+    
+    # Volume Features
+    if 'Volume' in df_htf_copy.columns:
+        df_htf_copy[f'Volume_MA'] = df_htf_copy['Volume'].rolling(window=20).mean()
+        df_htf_copy[f'Volume_Ratio'] = df_htf_copy['Volume'] / df_htf_copy[f'Volume_MA']
+    
+    # Log Return
+    df_htf_copy[f'Log_Return'] = np.log(df_htf_copy['Close'] / df_htf_copy['Close'].shift(1))
+    
+    df_htf_copy.dropna(inplace=True)
+    
+    # Select only the indicator columns (exclude OHLCV)
+    htf_cols = [col for col in df_htf_copy.columns 
+                if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+    
+    df_htf_selected = df_htf_copy[htf_cols].copy()
+    df_htf_selected.columns = [f'{prefix}{col}' for col in df_htf_selected.columns]
+    
+    # Ensure indices are timezone-naive for alignment
+    if df_main.index.tz is not None:
+        df_main.index = df_main.index.tz_localize(None)
+    if df_htf_selected.index.tz is not None:
+        df_htf_selected.index = df_htf_selected.index.tz_localize(None)
+    
+    # Join and forward-fill
+    df_merged = df_main.join(df_htf_selected, how='left')
+    df_merged.fillna(method='ffill', inplace=True)
+    
+    return df_merged
+
+# Global flag to control the price update thread
+price_update_running = True
+
+def update_live_price():
+    """Background thread to update live price every 2 seconds"""
+    global price_update_running
+    while price_update_running:
+        try:
+            # Get current tick price from MT5
+            tick = mt5.symbol_info_tick(SYMBOL)
+            if tick is not None:
+                current_price = tick.bid
+                
+                # Update bot_state.json with live price only
+                try:
+                    # Read existing state
+                    if os.path.exists('bot_state.json'):
+                        with open('bot_state.json', 'r') as f:
+                            state = json.load(f)
+                        
+                        # Update only the price and timestamp
+                        state['current_price'] = float(current_price)
+                        state['last_price_update'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        # Write back
+                        with open('bot_state.json', 'w') as f:
+                            json.dump(state, f, indent=4)
+                except Exception as e:
+                    pass  # Silently skip errors to not interrupt the thread
+            
+            time.sleep(0.5)  # Update every 0.5 seconds for near-real-time ticks
+        except Exception as e:
+            time.sleep(0.5)
 
 def main():
     print("--- STARTING LIVE TRADER (MT5 + SMC + REGRESSION) ---")
@@ -95,7 +193,12 @@ def main():
     # 3. Initialize Manager
     manager = MT5RiskManager(current_balance=ACCOUNT_BALANCE, current_equity=ACCOUNT_BALANCE)
     
-    # 4. Main Loop
+    # 4. Start Live Price Update Thread
+    print("Starting live price update thread...")
+    price_thread = threading.Thread(target=update_live_price, daemon=True)
+    price_thread.start()
+    
+    # 5. Main Loop
     while True:
         try:
             print("\n--- New Cycle ---")
@@ -122,65 +225,17 @@ def main():
             # C. Fetch Data (Multi-Timeframe)
             print(f"Fetching MTF data for {SYMBOL}...")
             df_30m = get_mt5_data(SYMBOL, "30m", 100)
-            df_15m = get_mt5_data(SYMBOL, "15m", 100)
+            df_15m = get_mt5_data(SYMBOL, "15m", 200)  # Need more for alignment
+            df_1h = get_mt5_data(SYMBOL, "1h", 200)    # For HTF features
+            df_4h = get_mt5_data(SYMBOL, "4h", 200)    # For HTF features
             df_5m = get_mt5_data(SYMBOL, "5m", LOOKBACK_CANDLES) # Main for AI
             df_3m = get_mt5_data(SYMBOL, "3m", 100)
             df_1m = get_mt5_data(SYMBOL, "1m", 100)
             
-            if any(df is None for df in [df_30m, df_15m, df_5m, df_3m, df_1m]):
+            if any(df is None for df in [df_30m, df_15m, df_1h, df_4h, df_5m, df_3m, df_1m]):
                 print("Failed to get data for some timeframes. Retrying...")
                 time.sleep(10)
                 continue
-
-            # --- FETCH CORRELATED ASSETS ---
-            print("Fetching Correlated Assets (DXY, US10Y)...")
-            
-            # 1. DXY from MT5 (USDX)
-            df_dxy = get_mt5_data("USDX", "5m", LOOKBACK_CANDLES)
-            if df_dxy is not None:
-                # Ensure indices are compatible (timezone naive)
-                if df_5m.index.tz is not None:
-                    df_5m.index = df_5m.index.tz_localize(None)
-                if df_dxy.index.tz is not None:
-                    df_dxy.index = df_dxy.index.tz_localize(None)
-                    
-                # Merge using reindex/ffill
-                df_5m['DXY'] = df_dxy['Close'].reindex(df_5m.index, method='ffill')
-            else:
-                print("Warning: Could not fetch USDX from MT5. Using 0.0 (Risk of poor prediction)")
-                df_5m['DXY'] = 0.0
-
-            # 2. US10Y from YFinance (^TNX)
-            try:
-                import yfinance as yf
-                # Fetch recent data to match 5m timeframe
-                us10y_data = yf.download('^TNX', period='5d', interval='5m', progress=False)
-                
-                if not us10y_data.empty:
-                    if us10y_data.index.tz is not None:
-                        us10y_data.index = us10y_data.index.tz_localize(None)
-                        
-                    if isinstance(us10y_data.columns, pd.MultiIndex):
-                        try:
-                            us10y_close = us10y_data['Close']['^TNX']
-                        except KeyError:
-                            us10y_close = us10y_data['Close']
-                    else:
-                        us10y_close = us10y_data['Close']
-                    
-                    # Merge/Align with df_5m
-                    aligned_us10y = us10y_close.reindex(df_5m.index, method='ffill')
-                    df_5m['US10Y'] = aligned_us10y
-                else:
-                    print("Warning: No data for ^TNX")
-                    df_5m['US10Y'] = 0.0
-            except Exception as e:
-                print(f"Error fetching US10Y: {e}")
-                df_5m['US10Y'] = 0.0
-            
-            # Fill any remaining NaNs (e.g. if DXY/US10Y missing for latest candle)
-            df_5m.fillna(method='ffill', inplace=True)
-            df_5m.fillna(0, inplace=True)
 
             # C. Calculate Indicators (For Trend Checks)
             # Helper to get EMA
@@ -204,14 +259,51 @@ def main():
                 
             print(f"HTF Bias (30m/15m): {htf_bias}")
             
-            # 2. AI Prediction (5m)
-            df_5m = calculate_indicators(df_5m)
+            # 2. AI Prediction (5m) - Calculate indicators and align HTF features
+            # NOTE: DXY and US10Y were NOT in training data, removed for now
+            # To use them, retrain the model with these features included
+            
+            df_5m = calculate_indicators(df_5m, prefix='')
+            
+            # Align HTF features (matching training process)
+            print("Aligning HTF features...")
+            df_5m = align_htf_features(df_5m, df_15m, 'HTF15_')
+            df_5m = align_htf_features(df_5m, df_1h, 'HTF1H_')
+            df_5m = align_htf_features(df_5m, df_4h, 'HTF4H_')
+            
             if len(df_5m) < SEQ_LEN:
                 print("Not enough 5m data.")
                 continue
                 
             latest_5m = df_5m.tail(SEQ_LEN)
-            feature_cols = ['Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'BB_UPPER', 'BB_LOWER', 'Dist_to_High', 'Dist_to_Low', 'DXY', 'US10Y']
+            
+            # Feature columns MUST match training order EXACTLY (from scaler)
+            feature_cols = [
+                # Base features (M5) - 12 features
+                'Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'EMA_200', 'BB_UPPER', 'BB_LOWER',
+                'Dist_to_High', 'Dist_to_Low', 'Volume_MA', 'Volume_Ratio',
+                # HTF15 features - 16 features (exact scaler order)
+                'HTF15_EMA_50', 'HTF15_EMA_200', 'HTF15_RSI', 'HTF15_MACD', 'HTF15_ATR',
+                'HTF15_BB_UPPER', 'HTF15_BB_LOWER', 'HTF15_Swing_High', 'HTF15_Swing_Low',
+                'HTF15_Last_Swing_High', 'HTF15_Last_Swing_Low', 'HTF15_Dist_to_High', 'HTF15_Dist_to_Low',
+                'HTF15_Volume_MA', 'HTF15_Volume_Ratio', 'HTF15_Log_Return',
+                # HTF1H features - 16 features (exact scaler order)
+                'HTF1H_EMA_50', 'HTF1H_EMA_200', 'HTF1H_RSI', 'HTF1H_MACD', 'HTF1H_ATR',
+                'HTF1H_BB_UPPER', 'HTF1H_BB_LOWER', 'HTF1H_Swing_High', 'HTF1H_Swing_Low',
+                'HTF1H_Last_Swing_High', 'HTF1H_Last_Swing_Low', 'HTF1H_Dist_to_High', 'HTF1H_Dist_to_Low',
+                'HTF1H_Volume_MA', 'HTF1H_Volume_Ratio', 'HTF1H_Log_Return',
+                # HTF4H features - 16 features (exact scaler order)
+                'HTF4H_EMA_50', 'HTF4H_EMA_200', 'HTF4H_RSI', 'HTF4H_MACD', 'HTF4H_ATR',
+                'HTF4H_BB_UPPER', 'HTF4H_BB_LOWER', 'HTF4H_Swing_High', 'HTF4H_Swing_Low',
+                'HTF4H_Last_Swing_High', 'HTF4H_Last_Swing_Low', 'HTF4H_Dist_to_High', 'HTF4H_Dist_to_Low',
+                'HTF4H_Volume_MA', 'HTF4H_Volume_Ratio', 'HTF4H_Log_Return'
+            ]
+            # Total: 12 + 16 + 16 + 16 = 60 features
+            
+            # Filter to only columns that exist (defensive programming)
+            feature_cols = [col for col in feature_cols if col in latest_5m.columns]
+            
+            print(f"Using {len(feature_cols)} features for prediction (expected: 60)")
             signal_ai, predicted_price, confidence = get_trade_signal(latest_5m, model, scaler, target_scaler, feature_cols)
             
             current_price = latest_5m['Close'].iloc[-1]

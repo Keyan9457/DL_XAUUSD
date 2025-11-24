@@ -213,6 +213,20 @@ else:
     price = state.get('current_price', 0.0)
     pred_price = state.get('predicted_price', 0.0)
     last_update = state.get('last_update', 'N/A').split()[1] if ' ' in state.get('last_update', '') else state.get('last_update', 'N/A')
+    next_update_str = state.get('next_update', None)
+    
+    countdown_text = "Wait..."
+    if next_update_str:
+        try:
+            next_update_dt = datetime.strptime(next_update_str, '%Y-%m-%d %H:%M:%S')
+            remaining = (next_update_dt - datetime.now()).total_seconds()
+            if remaining > 0:
+                mins, secs = divmod(int(remaining), 60)
+                countdown_text = f"{mins:02d}:{secs:02d}"
+            else:
+                countdown_text = "Updating..."
+        except:
+            pass
     signals = state.get('signals', {})
     setup = state.get('trade_setup', {})
     
@@ -263,8 +277,9 @@ else:
     with col4:
         st.markdown(f"""
             <div class="glass-card" style="align-items: center;">
-                <div class="label-text">Last Update</div>
-                <div class="value-text" style="font-size: 1.2rem;">{last_update}</div>
+                <div class="label-text">Next Cycle</div>
+                <div class="value-text" style="font-size: 1.5rem; color: #fbbf24;">{countdown_text}</div>
+                <div class="label-text" style="font-size: 0.6rem; margin-top: 0.2rem;">Last: {last_update}</div>
             </div>
         """, unsafe_allow_html=True)
     

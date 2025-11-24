@@ -140,6 +140,7 @@ def align_htf_features(df_main, df_htf, prefix):
 
 # Global flag to control the price update thread
 price_update_running = True
+file_lock = threading.Lock()
 
 def update_live_price():
     """Background thread to update live price every 2 seconds"""
@@ -163,8 +164,9 @@ def update_live_price():
                         state['last_price_update'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                         
                         # Write back
-                        with open('bot_state.json', 'w') as f:
-                            json.dump(state, f, indent=4)
+                        with file_lock:
+                            with open('bot_state.json', 'w') as f:
+                                json.dump(state, f, indent=4)
                 except Exception as e:
                     pass  # Silently skip errors to not interrupt the thread
             
@@ -449,12 +451,14 @@ def main():
                         "tp": float(sell_tp)
                     }
                 },
-                "chart_data": chart_data
+                "chart_data": chart_data,
+                "next_update": (datetime.datetime.now() + datetime.timedelta(seconds=300)).strftime('%Y-%m-%d %H:%M:%S')
             }
             
             try:
-                with open('bot_state.json', 'w') as f:
-                    json.dump(state, f, indent=4)
+                with file_lock:
+                    with open('bot_state.json', 'w') as f:
+                        json.dump(state, f, indent=4)
                 print("Dashboard state updated.")
             except Exception as e:
                 print(f"Error saving dashboard state: {e}")

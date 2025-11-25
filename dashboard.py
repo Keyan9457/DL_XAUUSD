@@ -143,7 +143,7 @@ st.markdown("""
     /* --- SIGNAL BOXES --- */
     .signal-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
         gap: 1rem;
         margin-bottom: 1.5rem;
     }
@@ -154,6 +154,14 @@ st.markdown("""
         border-radius: 12px;
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    /* Mobile Adjustments */
+    @media (max-width: 600px) {
+        .value-large { font-size: 1.8rem; }
+        .app-title { font-size: 1.2rem; }
+        .signal-grid { grid-template-columns: 1fr 1fr; }
+        .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
     }
     
     /* --- TRADE SETUP --- */
@@ -286,32 +294,41 @@ else:
     st.markdown("<div style='height: 1.5rem'></div>", unsafe_allow_html=True)
     
     # 3. SIGNAL GRID
-    st.markdown('<div class="label-text" style="margin-left: 0.5rem;">📡 Signal Analysis</div>', unsafe_allow_html=True)
+    st.markdown('<div class="label-text" style="margin-left: 0.5rem;">📡 Signal Analysis (4-Gate System)</div>', unsafe_allow_html=True)
     
     htf = signals.get('htf_bias', 'NEUTRAL')
     ai = signals.get('ai_signal', 'HOLD')
     conf = signals.get('confidence', 0.0)
     ltf = signals.get('ltf_conf', 'NEUTRAL')
+    smc = signals.get('smc_signal', 'HOLD')
+    smc_conf = signals.get('smc_confidence', 0.0)
+    smc_reason = signals.get('smc_reason', 'None')
     final = signals.get('final_signal', 'HOLD')
     
     st.markdown(f"""
         <div class="signal-grid">
             <div class="glass-card signal-item">
-                <div class="label-text">HTF Bias</div>
+                <div class="label-text">1. HTF Bias</div>
                 <div class="value-text {get_color_class(htf)}">{htf}</div>
             </div>
             <div class="glass-card signal-item">
-                <div class="label-text">AI Model</div>
+                <div class="label-text">2. AI Model</div>
                 <div class="value-text {get_color_class(ai)}">{ai}</div>
                 <div class="label-text" style="margin-top:0.3rem; font-size: 0.65rem;">{conf:.1f}% Conf</div>
             </div>
             <div class="glass-card signal-item">
-                <div class="label-text">LTF Conf</div>
+                <div class="label-text">3. LTF Conf</div>
                 <div class="value-text {get_color_class(ltf)}">{ltf}</div>
             </div>
-            <div class="glass-card signal-item" style="border-color: rgba(255,255,255,0.2);">
-                <div class="label-text">Final Decision</div>
-                <div class="value-text {get_color_class(final)}">{final}</div>
+            <div class="glass-card signal-item">
+                <div class="label-text">4. SMC Signal</div>
+                <div class="value-text {get_color_class(smc)}">{smc}</div>
+                <div class="label-text" style="margin-top:0.3rem; font-size: 0.65rem;">{smc_conf*100:.0f}% Conf</div>
+                <div class="label-text" style="font-size: 0.55rem; color: #64748b; margin-top:0.2rem;">{smc_reason}</div>
+            </div>
+            <div class="glass-card signal-item" style="grid-column: 1 / -1; border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.05);">
+                <div class="label-text">FINAL DECISION</div>
+                <div class="value-text {get_color_class(final)}" style="font-size: 2rem;">{final}</div>
             </div>
         </div>
     """, unsafe_allow_html=True)

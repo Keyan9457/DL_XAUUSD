@@ -7,6 +7,7 @@ import pandas_ta as ta
 from live_trader import MT5RiskManager, get_trade_signal, ACCOUNT_BALANCE
 from mt5_handler import initialize_mt5, get_mt5_data
 from notification_handler import send_whatsapp_message
+from smc_indicators import add_all_smc_indicators, get_smc_signal
 import datetime
 import json
 import os
@@ -19,32 +20,12 @@ SCALER_PATH = 'scaler.pkl'
 TARGET_SCALER_PATH = 'target_scaler.pkl'
 SYMBOL = 'XAUUSD' # MT5 Symbol (Check your broker, might be 'GOLD' or 'XAUUSD.m')
 INTERVAL = '5m'
-LOOKBACK_CANDLES = 300 
+LOOKBACK_CANDLES = 80  # Reduced for demo account compatibility
 SEQ_LEN = 60 
 
-def add_smc_indicators(df):
-    """
-    Adds simplified SMC features:
-    1. Swing Highs/Lows (Fractals)
-    2. Order Block Proximity (Distance to recent significant High/Low)
-    """
-    # Identify Swing Highs and Lows (Fractals) - Window of 5
-    df['Swing_High'] = df['High'].rolling(window=5, center=True).max() == df['High']
-    df['Swing_Low'] = df['Low'].rolling(window=5, center=True).min() == df['Low']
-    
-    # Forward fill the last known Swing High/Low
-    df['Last_Swing_High'] = df['High'].where(df['Swing_High']).ffill()
-    df['Last_Swing_Low'] = df['Low'].where(df['Swing_Low']).ffill()
-    
-    # Feature: Distance to Last Swing High/Low
-    df['Dist_to_High'] = df['Last_Swing_High'] - df['Close']
-    df['Dist_to_Low'] = df['Close'] - df['Last_Swing_Low']
-    
-    # Fill NaNs
-    df.fillna(method='ffill', inplace=True)
-    df.fillna(0, inplace=True)
-    
-    return df
+# SMC indicators are now handled by smc_indicators.py module
+# See add_all_smc_indicators() for full implementation
+
 
 def calculate_indicators(df, prefix=''):
     # Copy from model_training.py to ensure consistency
@@ -73,7 +54,7 @@ def calculate_indicators(df, prefix=''):
 
     # 5. SMC Features (only for main timeframe)
     if prefix == '':
-        df = add_smc_indicators(df)
+        df = add_all_smc_indicators(df)
     
     # 6. Volume Features
     if 'Volume' in df.columns:
@@ -107,7 +88,7 @@ def align_htf_features(df_main, df_htf, prefix):
         df_htf_copy[f'BB_LOWER'] = bb.iloc[:, 2]
     
     # SMC Features for HTF
-    df_htf_copy = add_smc_indicators(df_htf_copy)
+    df_htf_copy = add_all_smc_indicators(df_htf_copy)
     
     # Volume Features
     if 'Volume' in df_htf_copy.columns:
@@ -206,8 +187,35 @@ def main():
             print("\n--- New Cycle ---")
             
             # A. Check News
+            # A. Check News
             if not manager.check_news():
                 print("High Impact News Detected. Skipping trade.")
+                
+                # Save "Waiting" state for dashboard
+                try:
+                    state = {
+                        "last_update": datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "symbol": SYMBOL,
+                        "current_price": 0.0, # Will be updated by thread
+                        "predicted_price": 0.0,
+                        "next_update": (datetime.datetime.now() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S'),
+                        "signals": {
+                            "htf_bias": "NEWS",
+                            "ai_signal": "WAIT",
+                            "confidence": 0.0,
+                            "ltf_conf": "NEWS",
+                            "smc_signal": "WAIT",
+                            "smc_confidence": 0.0,
+                            "smc_reason": "High Impact News Event",
+                            "final_signal": "HOLD"
+                        },
+                        "trade_setup": {}
+                    }
+                    with open('bot_state.json', 'w') as f:
+                        json.dump(state, f, indent=4)
+                except Exception as e:
+                    print(f"Error saving state: {e}")
+
                 time.sleep(300)
                 time.sleep(300)
                 continue
@@ -328,15 +336,38 @@ def main():
             print(f"AI Signal (5m): {signal_ai}")
             print(f"LTF Conf (3m/1m): {ltf_conf}")
             
-            # --- FINAL DECISION (WATERFALL) ---
+            # --- SMC SIGNAL (4th Gate) ---
+            smc_signal, smc_confidence, smc_reason = get_smc_signal(latest_5m, current_price)
+            print(f"SMC Signal: {smc_signal} (Confidence: {smc_confidence:.2f})")
+            print(f"SMC Reason: {smc_reason}")
+            
+            # --- FINAL DECISION (4-GATE SYSTEM) ---
             final_signal = "HOLD"
             
-            if htf_bias == "BULLISH" and signal_ai == "BUY" and ltf_conf == "BULLISH":
+            # Gate 1: HTF Bias
+            # Gate 2: AI Model Signal
+            # Gate 3: LTF Confirmation
+            # Gate 4: SMC Confirmation (NEW!)
+            
+            if (htf_bias == "BULLISH" and 
+                signal_ai == "BUY" and 
+                ltf_conf == "BULLISH" and 
+                smc_signal == "BUY" and 
+                smc_confidence >= 0.3):  # Minimum 30% SMC confidence
                 final_signal = "BUY"
-            elif htf_bias == "BEARISH" and signal_ai == "SELL" and ltf_conf == "BEARISH":
+                print("✅ ALL 4 GATES ALIGNED - BUY SIGNAL CONFIRMED!")
+                
+            elif (htf_bias == "BEARISH" and 
+                  signal_ai == "SELL" and 
+                  ltf_conf == "BEARISH" and 
+                  smc_signal == "SELL" and 
+                  smc_confidence >= 0.3):
                 final_signal = "SELL"
+                print("✅ ALL 4 GATES ALIGNED - SELL SIGNAL CONFIRMED!")
             else:
-                print("Mismatch in Timeframes. Waiting for perfect setup...")
+                print("⚠️ Gates not aligned. Waiting for perfect setup...")
+                if smc_signal == "HOLD":
+                    print("   → No clear SMC setup detected")
             
             # Time Output
             last_time_naive = latest_5m.index[-1]
@@ -437,6 +468,9 @@ def main():
                     "ai_signal": signal_ai,
                     "confidence": confidence,
                     "ltf_conf": ltf_conf,
+                    "smc_signal": smc_signal,
+                    "smc_confidence": smc_confidence,
+                    "smc_reason": smc_reason,
                     "final_signal": final_signal
                 },
                 "trade_setup": {

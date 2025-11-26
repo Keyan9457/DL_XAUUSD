@@ -224,13 +224,70 @@ def get_smc_signal(df, current_price):
         bearish_score += 3
         reasons.append("Bearish CHoCH")
     
+    # --- FIBONACCI CHECK ---
+    # Get last swing points
+    last_high = latest.get('Last_Swing_High', 0)
+    last_low = latest.get('Last_Swing_Low', 0)
+    
+    fib_score = 0
+    
+    if last_high > 0 and last_low > 0:
+        # Determine trend context for Fib
+        # If we are looking for BUY, we assume we are in an uptrend pullback (or reversal from low)
+        # If we are looking for SELL, we assume we are in a downtrend pullback
+        
+        # Calculate Fibs for potential BUY (Retracement from High down to Low? No, usually High to Low range)
+        # We need the range of the *previous impulse*.
+        # Simplified: Use the most recent Swing High and Swing Low as the range.
+        
+        fib_range = last_high - last_low
+        if fib_range > 0:
+            # Current Retracement Level
+            # For BUY: How far down from High?
+            retracement_from_high = (last_high - current_price) / fib_range
+            
+            # For SELL: How far up from Low?
+            retracement_from_low = (current_price - last_low) / fib_range
+            
+            if bullish_score > bearish_score: # Potential BUY
+                # We want price to be 'Discounted' (at least 50% down from high)
+                if retracement_from_high >= 0.5:
+                    fib_score += 1
+                    reasons.append("Discount Zone (>50%)")
+                    
+                    # Golden Zone (0.618 - 0.786 is often used, or 0.5 - 0.618)
+                    if 0.5 <= retracement_from_high <= 0.79:
+                        fib_score += 2
+                        reasons.append("Golden Zone Fib")
+                else:
+                    # Penalty for buying in Premium
+                    bullish_score -= 2 
+                    reasons.append("⚠️ Premium Zone (Wait for pullback)")
+            
+            elif bearish_score > bullish_score: # Potential SELL
+                # We want price to be 'Premium' (at least 50% up from low)
+                if retracement_from_low >= 0.5:
+                    fib_score += 1
+                    reasons.append("Premium Zone (>50%)")
+                    
+                    if 0.5 <= retracement_from_low <= 0.79:
+                        fib_score += 2
+                        reasons.append("Golden Zone Fib")
+                else:
+                    # Penalty for selling in Discount
+                    bearish_score -= 2
+                    reasons.append("⚠️ Discount Zone (Wait for pullback)")
+
     # Determine signal
-    if bullish_score > bearish_score and bullish_score >= 3:
+    total_bullish = bullish_score + (fib_score if bullish_score > bearish_score else 0)
+    total_bearish = bearish_score + (fib_score if bearish_score > bullish_score else 0)
+    
+    if total_bullish > total_bearish and total_bullish >= 3:
         signal = "BUY"
-        confidence = min(bullish_score / 10.0, 1.0)
-    elif bearish_score > bullish_score and bearish_score >= 3:
+        confidence = min(total_bullish / 12.0, 1.0)
+    elif total_bearish > total_bullish and total_bearish >= 3:
         signal = "SELL"
-        confidence = min(bearish_score / 10.0, 1.0)
+        confidence = min(total_bearish / 12.0, 1.0)
     
     reason = ", ".join(reasons) if reasons else "No clear SMC setup"
     

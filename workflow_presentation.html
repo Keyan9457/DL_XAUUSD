@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XAUUSD Bot Workflow</title>
+    <style>
+        :root {
+            --bg-color: #000000;
+            --text-color: #ffffff;
+            --accent-color: #007aff;
+            --glass-bg: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .slide {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            width: 80%;
+            height: 80%;
+            padding: 40px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        .slide.active {
+            display: flex;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5em;
+            background: linear-gradient(135deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 2rem;
+            color: var(--accent-color);
+            margin-bottom: 1em;
+        }
+
+        p, li {
+            font-size: 1.5rem;
+            line-height: 1.6;
+            color: #cccccc;
+            max-width: 800px;
+        }
+
+        ul {
+            text-align: left;
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            margin-bottom: 15px;
+            padding-left: 20px;
+            border-left: 3px solid var(--accent-color);
+        }
+
+        img {
+            max-width: 100%;
+            max-height: 60vh;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            margin-top: 20px;
+        }
+
+        .controls {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .highlight {
+            color: var(--accent-color);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Slide 1: Title -->
+    <div class="slide active" id="slide-1">
+        <h1>XAUUSD AI Trading Bot</h1>
+        <h2>Workflow & Architecture Walkthrough</h2>
+        <p>A "Hedge Fund Analyst" approach to automated trading.</p>
+        <p>Combines <strong>Technical Analysis</strong>, <strong>Deep Learning</strong>, and <strong>Smart Money Concepts</strong>.</p>
+    </div>
+
+    <!-- Slide 2: The Waterfall Logic -->
+    <div class="slide" id="slide-2">
+        <h1>The "Waterfall" Logic</h1>
+        <p>The bot operates on a strict confirmation hierarchy.</p>
+        <p>A trade must pass through <strong>3 Gates</strong> to be executed.</p>
+        <ul>
+            <li><strong>Gate 1:</strong> High Timeframe Trend (30m & 15m)</li>
+            <li><strong>Gate 2:</strong> AI Prediction (5m)</li>
+            <li><strong>Gate 3:</strong> Low Timeframe Entry (3m & 1m)</li>
+        </ul>
+    </div>
+
+    <!-- Slide 3: Architecture Diagram -->
+    <div class="slide" id="slide-3">
+        <h1>System Architecture</h1>
+        <img src="architecture_diagram.png" alt="Architecture Diagram">
+        <p>Visualizing the data flow from MT5 to the AI Model and back.</p>
+    </div>
+
+    <!-- Slide 4: Gate 1 - HTF Trend -->
+    <div class="slide" id="slide-4">
+        <h1>Gate 1: The Big Picture</h1>
+        <h2>Determining Market Direction</h2>
+        <ul>
+            <li>Analyzes <strong>30-minute</strong> and <strong>15-minute</strong> charts.</li>
+            <li>Uses <strong>EMA 50</strong> (Exponential Moving Average).</li>
+            <li><span class="highlight">Bullish:</span> Price > EMA 50 on BOTH timeframes.</li>
+            <li><span class="highlight">Bearish:</span> Price < EMA 50 on BOTH timeframes.</li>
+            <li>If mixed, the bot stays <strong>Neutral</strong> (No Trade).</li>
+        </ul>
+    </div>
+
+    <!-- Slide 5: Gate 2 - The Brain -->
+    <div class="slide" id="slide-5">
+        <h1>Gate 2: The AI Brain</h1>
+        <h2>Predicting the Next Move</h2>
+        <ul>
+            <li>Uses an <strong>LSTM Neural Network</strong> (Long Short-Term Memory).</li>
+            <li>Analyzes the last <strong>60 candles</strong> on the 5-minute timeframe.</li>
+            <li><strong>Features:</strong> Price, RSI, MACD, ATR, Bollinger Bands, SMC.</li>
+            <li>Predicts the <strong>Exact Closing Price</strong> of the next candle.</li>
+        </ul>
+    </div>
+
+    <!-- Slide 6: Gate 3 - The Sniper -->
+    <div class="slide" id="slide-6">
+        <h1>Gate 3: The Sniper</h1>
+        <h2>Timing the Entry</h2>
+        <ul>
+            <li>Validates the signal on <strong>3-minute</strong> and <strong>1-minute</strong> charts.</li>
+            <li>Checks for <strong>Momentum Alignment</strong>.</li>
+            <li>Prevents buying at the top of a pullback or selling at the bottom.</li>
+            <li>Ensures we enter with the immediate flow of the market.</li>
+        </ul>
+    </div>
+
+    <!-- Slide 7: Workflow Diagram -->
+    <div class="slide" id="slide-7">
+        <h1>Decision Workflow</h1>
+        <img src="workflow_diagram.png" alt="Workflow Diagram">
+        <p>The decision tree from Start to Execution.</p>
+    </div>
+
+    <!-- Slide 8: Risk Management -->
+    <div class="slide" id="slide-8">
+        <h1>Risk Management</h1>
+        <h2>The Safety Net</h2>
+        <ul>
+            <li><strong>Stop Loss (SL):</strong> Placed at recent Swing High/Low (Order Blocks) or 1.5x ATR.</li>
+            <li><strong>Take Profit (TP):</strong> Automatically set to 2x Risk (1:2 Risk-Reward).</li>
+            <li><strong>Position Sizing:</strong> Dynamically calculated to risk only 1-2% of equity.</li>
+        </ul>
+    </div>
+
+    <!-- Slide 9: Execution & Monitoring -->
+    <div class="slide" id="slide-9">
+        <h1>Execution & Monitoring</h1>
+        <ul>
+            <li><strong>MT5 Integration:</strong> Direct order placement with SL/TP attached.</li>
+            <li><strong>Dashboard:</strong> Real-time visualization of signals and account status.</li>
+            <li><strong>Notifications:</strong> WhatsApp alerts for confirmed trades.</li>
+        </ul>
+        <p style="margin-top: 20px; font-size: 1.2rem; opacity: 0.8;">Fully automated, robust, and risk-managed.</p>
+    </div>
+
+    <div class="controls">
+        <button onclick="prevSlide()">Previous</button>
+        <button onclick="nextSlide()">Next</button>
+    </div>
+
+    <script>
+        let currentSlide = 1;
+        const totalSlides = 9;
+
+        function showSlide(n) {
+            // Hide all slides
+            document.querySelectorAll('.slide').forEach(s => s.classList.remove('active'));
+            
+            // Update current slide index
+            if (n > totalSlides) currentSlide = 1;
+            else if (n < 1) currentSlide = totalSlides;
+            else currentSlide = n;
+
+            // Show new slide
+            document.getElementById(`slide-${currentSlide}`).classList.add('active');
+        }
+
+        function nextSlide() {
+            showSlide(currentSlide + 1);
+        }
+
+        function prevSlide() {
+            showSlide(currentSlide - 1);
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === 'Space') nextSlide();
+            if (e.key === 'ArrowLeft') prevSlide();
+        });
+    </script>
+</body>
+</html>

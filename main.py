@@ -235,10 +235,10 @@ def main():
             # C. Fetch Data (Multi-Timeframe)
             print(f"Fetching MTF data for {SYMBOL}...")
             df_30m = get_mt5_data(SYMBOL, "30m", 100)
-            df_15m = get_mt5_data(SYMBOL, "15m", 200)  # Need more for alignment
-            df_1h = get_mt5_data(SYMBOL, "1h", 200)    # For HTF features
-            df_4h = get_mt5_data(SYMBOL, "4h", 200)    # For HTF features
-            df_5m = get_mt5_data(SYMBOL, "5m", LOOKBACK_CANDLES) # Main for AI
+            df_15m = get_mt5_data(SYMBOL, "15m", 500)  # Increased for EMA 200
+            df_1h = get_mt5_data(SYMBOL, "1h", 500)    # Increased for EMA 200
+            df_4h = get_mt5_data(SYMBOL, "4h", 500)    # Increased for EMA 200
+            df_5m = get_mt5_data(SYMBOL, "5m", LOOKBACK_CANDLES + 100) # Main for AI
             df_3m = get_mt5_data(SYMBOL, "3m", 100)
             df_1m = get_mt5_data(SYMBOL, "1m", 100)
             
@@ -274,6 +274,11 @@ def main():
             # To use them, retrain the model with these features included
             
             df_5m = calculate_indicators(df_5m, prefix='')
+            print("DEBUG: df_5m columns:", df_5m.columns.tolist())
+            if 'Dist_to_High' not in df_5m.columns:
+                print("CRITICAL: Dist_to_High MISSING in df_5m")
+            else:
+                print("OK: Dist_to_High present in df_5m")
             
             # Align HTF features (matching training process)
             print("Aligning HTF features...")

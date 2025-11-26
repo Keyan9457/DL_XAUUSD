@@ -48,6 +48,9 @@ def calculate_indicators(df, prefix=''):
         df[f'{prefix}Volume_MA'] = df['Volume'].rolling(window=20).mean()
         df[f'{prefix}Volume_Ratio'] = df['Volume'] / df[f'{prefix}Volume_MA']
     
+    # Add Log Return (Required for HTF features)
+    df[f'{prefix}Log_Return'] = np.log(df['Close'] / df['Close'].shift(1))
+    
     df.dropna(inplace=True)
     return df
 
@@ -71,11 +74,11 @@ def get_ltf_confirmation(df_3m, df_1m):
     if len(df_3m) < 50 or len(df_1m) < 50:
         return "NEUTRAL"
     
-    ema_3m = df_3m['EMA_50'].iloc[-1]
+    ema_3m = df_3m['LTF3_EMA_50'].iloc[-1]
     close_3m = df_3m['Close'].iloc[-1]
     trend_3m = "BULLISH" if close_3m > ema_3m else "BEARISH"
     
-    ema_1m = df_1m['EMA_50'].iloc[-1]
+    ema_1m = df_1m['LTF1_EMA_50'].iloc[-1]
     close_1m = df_1m['Close'].iloc[-1]
     trend_1m = "BULLISH" if close_1m > ema_1m else "BEARISH"
     
@@ -84,6 +87,20 @@ def get_ltf_confirmation(df_3m, df_1m):
     elif trend_3m == "BEARISH" and trend_1m == "BEARISH":
         return "BEARISH"
     return "NEUTRAL"
+
+def align_higher_timeframe(df_main, df_htf, prefix):
+    """Align higher timeframe data (Forward Fill)"""
+    htf_cols = [col for col in df_htf.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+    df_htf_selected = df_htf[htf_cols].copy()
+    df_htf_selected.columns = [f'{prefix}{col}' for col in df_htf_selected.columns]
+    
+    # Ensure indices are timezone-naive
+    if df_main.index.tz is not None: df_main.index = df_main.index.tz_localize(None)
+    if df_htf_selected.index.tz is not None: df_htf_selected.index = df_htf_selected.index.tz_localize(None)
+    
+    df_merged = df_main.join(df_htf_selected, how='left')
+    df_merged.fillna(method='ffill', inplace=True)
+    return df_merged
 
 def backtest_smc_system(days=30):
     """
@@ -115,6 +132,8 @@ def backtest_smc_system(days=30):
     start_date = end_date - timedelta(days=days + 10)  # Extra days for indicators
     
     df_5m = get_mt5_data(SYMBOL, '5m', count=days*288)  # 288 5m candles per day
+    df_15m = get_mt5_data(SYMBOL, '15m', count=days*96)
+    df_1h = get_mt5_data(SYMBOL, '1h', count=days*24)
     df_4h = get_mt5_data(SYMBOL, '4h', count=days*6 + 50)
     df_3m = get_mt5_data(SYMBOL, '3m', count=days*480)
     df_1m = get_mt5_data(SYMBOL, '1m', count=days*1440)
@@ -126,14 +145,50 @@ def backtest_smc_system(days=30):
     # Calculate indicators
     print("Calculating indicators...")
     df_5m = calculate_indicators(df_5m)
-    df_4h = calculate_indicators(df_4h, prefix='HTF_')
+    
+    if df_15m is not None:
+        df_15m = calculate_indicators(df_15m)
+        df_5m = align_higher_timeframe(df_5m, df_15m, 'HTF15_')
+        
+    if df_1h is not None:
+        df_1h = calculate_indicators(df_1h)
+        df_5m = align_higher_timeframe(df_5m, df_1h, 'HTF1H_')
+        
+    if df_4h is not None:
+        df_4h = calculate_indicators(df_4h)
+        df_5m = align_higher_timeframe(df_5m, df_4h, 'HTF4H_')
+        
     if df_3m is not None:
         df_3m = calculate_indicators(df_3m, prefix='LTF3_')
     if df_1m is not None:
         df_1m = calculate_indicators(df_1m, prefix='LTF1_')
     
-    # Prepare features
-    feature_cols = [col for col in df_5m.columns if col not in ['Open', 'High', 'Low', 'Close', 'Volume']]
+    # Prepare features (EXACTLY matching training)
+    feature_cols = [
+        # Base features (M5) - 12 features
+        'Close', 'RSI', 'MACD', 'ATR', 'EMA_50', 'EMA_200', 'BB_UPPER', 'BB_LOWER',
+        'Dist_to_High', 'Dist_to_Low', 'Volume_MA', 'Volume_Ratio',
+        # HTF15 features - 16 features
+        'HTF15_EMA_50', 'HTF15_EMA_200', 'HTF15_RSI', 'HTF15_MACD', 'HTF15_ATR',
+        'HTF15_BB_UPPER', 'HTF15_BB_LOWER', 'HTF15_Swing_High', 'HTF15_Swing_Low',
+        'HTF15_Last_Swing_High', 'HTF15_Last_Swing_Low', 'HTF15_Dist_to_High', 'HTF15_Dist_to_Low',
+        'HTF15_Volume_MA', 'HTF15_Volume_Ratio', 'HTF15_Log_Return',
+        # HTF1H features - 16 features
+        'HTF1H_EMA_50', 'HTF1H_EMA_200', 'HTF1H_RSI', 'HTF1H_MACD', 'HTF1H_ATR',
+        'HTF1H_BB_UPPER', 'HTF1H_BB_LOWER', 'HTF1H_Swing_High', 'HTF1H_Swing_Low',
+        'HTF1H_Last_Swing_High', 'HTF1H_Last_Swing_Low', 'HTF1H_Dist_to_High', 'HTF1H_Dist_to_Low',
+        'HTF1H_Volume_MA', 'HTF1H_Volume_Ratio', 'HTF1H_Log_Return',
+        # HTF4H features - 16 features
+        'HTF4H_EMA_50', 'HTF4H_EMA_200', 'HTF4H_RSI', 'HTF4H_MACD', 'HTF4H_ATR',
+        'HTF4H_BB_UPPER', 'HTF4H_BB_LOWER', 'HTF4H_Swing_High', 'HTF4H_Swing_Low',
+        'HTF4H_Last_Swing_High', 'HTF4H_Last_Swing_Low', 'HTF4H_Dist_to_High', 'HTF4H_Dist_to_Low',
+        'HTF4H_Volume_MA', 'HTF4H_Volume_Ratio', 'HTF4H_Log_Return'
+    ]
+    
+    # Filter to only columns that exist (defensive)
+    feature_cols = [col for col in feature_cols if col in df_5m.columns]
+    
+    print(f"Features: {len(feature_cols)} (Expected: 60)")
     
     # Backtest
     trades = []
@@ -141,6 +196,9 @@ def backtest_smc_system(days=30):
     
     print("\nRunning backtest...")
     print("-"*60)
+    
+    if df_4h is not None:
+        print("DEBUG: df_4h columns:", df_4h.columns.tolist())
     
     for i in range(SEQ_LEN + 200, len(df_5m) - 1):
         current_time = df_5m.index[i]

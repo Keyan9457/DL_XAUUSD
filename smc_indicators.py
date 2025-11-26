@@ -254,4 +254,12 @@ def add_all_smc_indicators(df):
     # This prevents dropna() from removing all rows
     df.fillna(0, inplace=True)
     
+    # --- Add Regression Model Features ---
+    # These are required by the scaler/model but were missing in this version
+    df['Last_Swing_High'] = df['High'].where(df['Swing_High']).ffill()
+    df['Last_Swing_Low'] = df['Low'].where(df['Swing_Low']).ffill()
+    
+    df['Dist_to_High'] = df['Last_Swing_High'] - df['Close']
+    df['Dist_to_Low'] = df['Close'] - df['Last_Swing_Low']
+    
     return df
